@@ -40,6 +40,7 @@ createApp({
     const partyProof = ref(null);
     const proofParty = ref("P-EAST");
     const audits = ref([]);
+    const rejections = ref([]);
     const contention = ref([]);
     const locks = ref([]);
     const dash = ref({});
@@ -75,6 +76,7 @@ createApp({
       cage_id: 0,
       amount: null,
       payee: "",
+      attest_ticket_no: "",
     });
     const forfeitForm = ref({
       cage_id: 0,
@@ -136,6 +138,12 @@ createApp({
         (c) => c.status === "核验通过" || c.status === "部分解笼"
       )
     );
+    // 解笼页票号下拉只列通过票（票号源头在核验页 attestations.ticket_no）
+    const passAttestations = computed(() =>
+      attestations.value.filter(
+        (a) => a.outcome === "通过" && a.ticket_no
+      )
+    );
     const failCages = computed(() =>
       cages.value.filter(
         (c) => c.status === "核验违约" || c.status === "部分罚没"
@@ -191,6 +199,7 @@ createApp({
           f,
           d,
           au,
+          rj,
           ct,
           lk,
           tj,
@@ -203,6 +212,7 @@ createApp({
           api.forfeits(),
           api.dashboard(),
           api.audit(),
+          api.rejections(),
           api.contention(),
           api.locks(),
           api.topupJobs(),
@@ -215,6 +225,7 @@ createApp({
         forfeits.value = f.items || [];
         dash.value = d || {};
         audits.value = au.items || [];
+        rejections.value = rj.items || [];
         contention.value = ct.items || [];
         locks.value = lk.items || [];
         topupJobs.value = tj.items || [];
@@ -314,11 +325,16 @@ createApp({
       clearFlash();
       try {
         if (!releaseForm.value.cage_id) throw new Error("请选择笼");
-        const payload = { cage_id: releaseForm.value.cage_id };
+        const ticket = (releaseForm.value.attest_ticket_no || "").trim();
+        if (!ticket) throw new Error("出金须绑定核验票号（缺票会被拒写）");
+        const payload = {
+          cage_id: releaseForm.value.cage_id,
+          attest_ticket_no: ticket,
+        };
         if (releaseForm.value.amount) payload.amount = releaseForm.value.amount;
         if (releaseForm.value.payee) payload.payee = releaseForm.value.payee;
         const row = await api.release(payload);
-        flashOk(`拨付成功 ${row.release_ref}`);
+        flashOk(`拨付成功 ${row.release_ref} · 票号 ${row.attest_ticket_no}`);
         await refresh();
       } catch (e) {
         flashErr(e);
@@ -409,6 +425,7 @@ createApp({
       partyProof,
       proofParty,
       audits,
+      rejections,
       contention,
       locks,
       dash,
@@ -427,6 +444,7 @@ createApp({
       splitForm,
       frozenCages,
       passCages,
+      passAttestations,
       failCages,
       login,
       logout,

@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 
 from auth import AuthHeader, require_user, require_writer
 from db import connect, now_iso, write_audit
-from locks import release, require_lock
+from locks import release, try_acquire
 from models import ForfeitIn
 
 router = APIRouter(tags=["forfeit"])
@@ -28,8 +28,11 @@ def list_forfeits(authorization: AuthHeader = None):
 def do_forfeit(body: ForfeitIn, authorization: AuthHeader = None):
     user = require_writer(authorization)
     lock_key = f"cage:{body.cage_id}"
-    with connect() as conn:
-        require_lock(conn, lock_key, user)
+    conn = connect()
+    try:
+        if not try_acquire(conn, lock_key, user):
+            conn.commit()
+            raise HTTPException(409, "争用：后到只记争用，不写业务")
         try:
             cage = conn.execute(
                 "SELECT * FROM cages WHERE id=?", (body.cage_id,)
@@ -110,3 +113,5 @@ def do_forfeit(body: ForfeitIn, authorization: AuthHeader = None):
         finally:
             release(conn, lock_key, user)
             conn.commit()
+    finally:
+        conn.close()

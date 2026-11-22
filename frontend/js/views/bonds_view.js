@@ -73,6 +73,21 @@ export const bondsViewTemplate = `
             </tr>
           </tbody>
         </table>
+        <h3 style="margin-top:10px">出金绑票（票号与解笼/核验/对账同源）</h3>
+        <table>
+          <thead><tr><th>笼</th><th>拨付凭证</th><th>金额</th><th>核验票号</th></tr></thead>
+          <tbody>
+            <tr v-for="t in (bondDetail.release_tickets||[])" :key="t.release_ref">
+              <td>{{ t.cage_code }}</td>
+              <td>{{ t.release_ref }}</td>
+              <td>{{ fmt(t.amount) }}</td>
+              <td>{{ t.attest_ticket_no || '—' }}</td>
+            </tr>
+            <tr v-if="!(bondDetail.release_tickets||[]).length">
+              <td colspan="4" class="hint">暂无正式拨付</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </div>

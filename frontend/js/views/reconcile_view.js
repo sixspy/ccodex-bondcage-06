@@ -22,7 +22,7 @@ export const reconcileViewTemplate = `
     <thead>
       <tr>
         <th>笼</th><th>代</th><th>状态</th><th>总额</th><th>可用</th>
-        <th>拨付</th><th>罚没</th><th>合计</th><th>平衡</th><th>缺口</th>
+        <th>拨付</th><th>罚没</th><th>合计</th><th>票号完备</th><th>平衡</th><th>缺口</th>
       </tr>
     </thead>
     <tbody>
@@ -36,12 +36,31 @@ export const reconcileViewTemplate = `
         <td>{{ fmt(i.forfeited) }}</td>
         <td>{{ fmt(i.accounted) }}</td>
         <td>
+          <span class="badge" :class="i.tickets_complete?'pass':'fail'">{{ i.tickets_complete ? '是' : '缺票' }}</span>
+        </td>
+        <td>
           <span class="badge" :class="i.balanced?'pass':'fail'">{{ i.balanced ? '是' : '否' }}</span>
         </td>
         <td>{{ fmt(i.gap) }}</td>
       </tr>
     </tbody>
   </table>
+  <div v-if="(recon.items||[]).length" style="margin-top:12px">
+    <h3>拨付票号同源账（源同 releases.attest_ticket_no → attestations.ticket_no）</h3>
+    <table>
+      <thead><tr><th>笼</th><th>拨付凭证</th><th>金额</th><th>核验票号</th></tr></thead>
+      <tbody>
+        <template v-for="i in (recon.items||[])" :key="'tk-'+i.cage_id">
+          <tr v-for="t in (i.release_tickets||[])" :key="t.release_ref">
+            <td>{{ i.cage_code }}</td>
+            <td>{{ t.release_ref }}</td>
+            <td>{{ fmt(t.amount) }}</td>
+            <td>{{ t.attest_ticket_no || '—' }}</td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
   <div v-if="partyProof" style="margin-top:14px">
     <h3>当事人互证 · {{ partyProof.party_key }}</h3>
     <div class="proof-box">{{ JSON.stringify(partyProof.proof, null, 2) }}

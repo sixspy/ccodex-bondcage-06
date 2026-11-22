@@ -57,21 +57,24 @@ def test_freeze_attest_release_flow():
     ).json()
     assert cage["status"] == "已冻结"
     assert cage["available"] == 40000
-    # 核验通过
+    # 核验通过（核验票号随核验生成，出金强制绑票）
     att = c.post(
         "/api/attestations",
         headers=h,
         json={"cage_id": cage["id"], "outcome": "通过", "evidence": "OK"},
     )
     assert att.status_code == 200
-    # 解笼
+    ticket_no = att.json()["ticket_no"]
+    assert ticket_no
+    # 解笼（绑定核验票号）
     rel = c.post(
         "/api/releases",
         headers=h,
-        json={"cage_id": cage["id"]},
+        json={"cage_id": cage["id"], "attest_ticket_no": ticket_no},
     ).json()
     assert rel["status"] == "已拨付"
     assert rel["amount"] == 40000
+    assert rel["attest_ticket_no"] == ticket_no
     recon = c.get("/api/reconcile/CG-FLOW-001", headers=h).json()
     assert recon["balanced"] is True
     proof = c.get("/api/proof/P-FLOW", headers=h).json()

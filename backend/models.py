@@ -34,6 +34,8 @@ class ReleaseIn(BaseModel):
     cage_id: int
     amount: float | None = None
     payee: str | None = None
+    # 出金强制绑票：核验票号，缺失/空白按甲路径拒写（零写入+拒写审计）
+    attest_ticket_no: str | None = None
 
 
 class ForfeitIn(BaseModel):

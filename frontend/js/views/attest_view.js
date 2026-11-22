@@ -33,11 +33,12 @@ export const attestViewTemplate = `
     <div>
       <table>
         <thead>
-          <tr><th>时间</th><th>笼</th><th>结论</th><th>笼代</th><th>核验员</th><th>证据</th></tr>
+          <tr><th>时间</th><th>核验票号</th><th>笼</th><th>结论</th><th>笼代</th><th>核验员</th><th>证据</th></tr>
         </thead>
         <tbody>
           <tr v-for="a in attestations" :key="a.id">
             <td>{{ a.created_at }}</td>
+            <td>{{ a.ticket_no || '—' }}</td>
             <td>{{ a.cage_code }}</td>
             <td><span class="badge" :class="a.outcome==='通过'?'pass':'fail'">{{ a.outcome }}</span></td>
             <td>{{ a.attest_gen }}</td>

@@ -5,12 +5,32 @@ from fastapi import APIRouter, HTTPException
 
 from auth import AuthHeader, require_user, require_writer
 from db import connect, now_iso, write_audit
-from locks import release, require_lock
+from locks import release, try_acquire
 from models import AttestIn
 
 router = APIRouter(tags=["attest"])
 
 ALLOWED = {"通过", "违约"}
+
+
+def _gen_ticket_no(conn, cage_code: str, gen: int) -> str:
+    """核验票号：ATT-笼码-g代-序号；全表唯一，冲突即换号重试。"""
+    base = f"ATT-{cage_code}-g{gen}"
+    seq = (
+        conn.execute(
+            "SELECT COUNT(*) c FROM attestations WHERE ticket_no LIKE ?",
+            (base + "-%",),
+        ).fetchone()["c"]
+        + 1
+    )
+    while True:
+        ticket = f"{base}-{seq:03d}"
+        clash = conn.execute(
+            "SELECT 1 FROM attestations WHERE ticket_no=?", (ticket,)
+        ).fetchone()
+        if not clash:
+            return ticket
+        seq += 1
 
 
 @router.get("/api/attestations")
@@ -32,8 +52,11 @@ def create_attestation(body: AttestIn, authorization: AuthHeader = None):
     if body.outcome not in ALLOWED:
         raise HTTPException(400, "outcome 须为通过或违约")
     lock_key = f"cage:{body.cage_id}"
-    with connect() as conn:
-        require_lock(conn, lock_key, user)
+    conn = connect()
+    try:
+        if not try_acquire(conn, lock_key, user):
+            conn.commit()
+            raise HTTPException(409, "争用：后到只记争用，不写业务")
         try:
             cage = conn.execute(
                 "SELECT * FROM cages WHERE id=?", (body.cage_id,)
@@ -54,15 +77,17 @@ def create_attestation(body: AttestIn, authorization: AuthHeader = None):
                 raise HTTPException(409, "本笼代已有核验结论，禁止改口")
             now = now_iso()
             gen = int(cage["generation"])
+            ticket_no = _gen_ticket_no(conn, cage["cage_code"], gen)
             cur = conn.execute(
-                """INSERT INTO attestations(cage_id,outcome,evidence,attest_gen,officer,created_at)
-                   VALUES (?,?,?,?,?,?)""",
+                """INSERT INTO attestations(cage_id,outcome,evidence,attest_gen,officer,ticket_no,created_at)
+                   VALUES (?,?,?,?,?,?,?)""",
                 (
                     body.cage_id,
                     body.outcome,
                     body.evidence or "",
                     gen,
                     user,
+                    ticket_no,
                     now,
                 ),
             )
@@ -81,6 +106,7 @@ def create_attestation(body: AttestIn, authorization: AuthHeader = None):
                     "outcome": body.outcome,
                     "attest_gen": gen,
                     "evidence": body.evidence or "",
+                    "ticket_no": ticket_no,
                 },
             )
             conn.commit()
@@ -91,3 +117,5 @@ def create_attestation(body: AttestIn, authorization: AuthHeader = None):
         finally:
             release(conn, lock_key, user)
             conn.commit()
+    finally:
+        conn.close()

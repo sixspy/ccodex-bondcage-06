@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 
 from auth import AuthHeader, require_user, require_writer
 from db import connect, now_iso, write_audit
-from locks import release, require_lock
+from locks import release, try_acquire
 from models import CageFreezeIn
 
 router = APIRouter(tags=["cages"])
@@ -63,8 +63,11 @@ def freeze_cage(body: CageFreezeIn, authorization: AuthHeader = None):
     """从账户可用余额划入新笼并冻结。"""
     user = require_writer(authorization)
     lock_key = f"bond:{body.party_key}"
-    with connect() as conn:
-        require_lock(conn, lock_key, user)
+    conn = connect()
+    try:
+        if not try_acquire(conn, lock_key, user):
+            conn.commit()
+            raise HTTPException(409, "争用：后到只记争用，不写业务")
         try:
             acct = conn.execute(
                 "SELECT * FROM bond_accounts WHERE party_key=?",
@@ -126,3 +129,5 @@ def freeze_cage(body: CageFreezeIn, authorization: AuthHeader = None):
         finally:
             release(conn, lock_key, user)
             conn.commit()
+    finally:
+        conn.close()

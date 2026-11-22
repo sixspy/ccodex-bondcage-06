@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 
 from auth import AuthHeader, require_user, require_writer
 from db import connect, now_iso, write_audit
-from locks import release, require_lock
+from locks import release, try_acquire
 from models import BondOpenIn, DepositIn
 
 router = APIRouter(tags=["bonds"])
@@ -39,10 +39,19 @@ def get_bond(party_key: str, authorization: AuthHeader = None):
                FROM cages WHERE party_key=? ORDER BY id DESC""",
             (party_key,),
         ).fetchall()
+        # 账户页票号面：该当事人各笼正式拨付所绑核验票（源同 releases/attestations）
+        rel_tickets = conn.execute(
+            """SELECT r.release_ref, r.attest_ticket_no, r.amount, c.cage_code
+               FROM releases r JOIN cages c ON c.id=r.cage_id
+               WHERE c.party_key=? AND r.status='已拨付'
+               ORDER BY r.id DESC""",
+            (party_key,),
+        ).fetchall()
         return {
             "account": dict(row),
             "deposits": [dict(d) for d in deposits],
             "cages": [dict(c) for c in cages],
+            "release_tickets": [dict(r) for r in rel_tickets],
         }
 
 
@@ -50,8 +59,11 @@ def get_bond(party_key: str, authorization: AuthHeader = None):
 def open_bond(body: BondOpenIn, authorization: AuthHeader = None):
     user = require_writer(authorization)
     lock_key = f"bond:{body.party_key}"
-    with connect() as conn:
-        require_lock(conn, lock_key, user)
+    conn = connect()
+    try:
+        if not try_acquire(conn, lock_key, user):
+            conn.commit()
+            raise HTTPException(409, "争用：后到只记争用，不写业务")
         try:
             exists = conn.execute(
                 "SELECT id FROM bond_accounts WHERE party_key=?",
@@ -88,14 +100,19 @@ def open_bond(body: BondOpenIn, authorization: AuthHeader = None):
         finally:
             release(conn, lock_key, user)
             conn.commit()
+    finally:
+        conn.close()
 
 
 @router.post("/api/bonds/deposit")
 def deposit(body: DepositIn, authorization: AuthHeader = None):
     user = require_writer(authorization)
     lock_key = f"bond:{body.party_key}"
-    with connect() as conn:
-        require_lock(conn, lock_key, user)
+    conn = connect()
+    try:
+        if not try_acquire(conn, lock_key, user):
+            conn.commit()
+            raise HTTPException(409, "争用：后到只记争用，不写业务")
         try:
             acct = conn.execute(
                 "SELECT * FROM bond_accounts WHERE party_key=?",
@@ -132,3 +149,5 @@ def deposit(body: DepositIn, authorization: AuthHeader = None):
         finally:
             release(conn, lock_key, user)
             conn.commit()
+    finally:
+        conn.close()

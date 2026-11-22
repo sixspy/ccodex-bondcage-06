@@ -86,6 +86,7 @@ CREATE TABLE IF NOT EXISTS attestations(
   evidence TEXT NOT NULL,
   attest_gen INTEGER NOT NULL,
   officer TEXT NOT NULL,
+  ticket_no TEXT,
   created_at TEXT NOT NULL,
   FOREIGN KEY(cage_id) REFERENCES cages(id)
 );
@@ -97,6 +98,7 @@ CREATE TABLE IF NOT EXISTS releases(
   cage_generation INTEGER NOT NULL,
   status TEXT NOT NULL,
   release_ref TEXT NOT NULL,
+  attest_ticket_no TEXT,
   created_at TEXT NOT NULL,
   FOREIGN KEY(cage_id) REFERENCES cages(id)
 );
@@ -269,9 +271,26 @@ def seed_attest_samples(conn: sqlite3.Connection) -> None:
         # 不预置通过/违约结论，只保证表可查；实际核验由业务动作写入
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """老库补列（库文件路径不变）：只加可空列，不动既有行。"""
+    have = {
+        "attestations": {
+            r["name"] for r in conn.execute("PRAGMA table_info(attestations)")
+        },
+        "releases": {
+            r["name"] for r in conn.execute("PRAGMA table_info(releases)")
+        },
+    }
+    if "ticket_no" not in have["attestations"]:
+        conn.execute("ALTER TABLE attestations ADD COLUMN ticket_no TEXT")
+    if "attest_ticket_no" not in have["releases"]:
+        conn.execute("ALTER TABLE releases ADD COLUMN attest_ticket_no TEXT")
+
+
 def init_db() -> None:
     with connect() as conn:
         conn.executescript(SCHEMA)
+        _migrate(conn)
         seed_users(conn)
         seed_bonds(conn)
         seed_cages(conn)

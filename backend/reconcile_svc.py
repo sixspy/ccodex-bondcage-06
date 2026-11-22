@@ -19,13 +19,29 @@ def _reconcile_cage(conn, cage) -> dict:
            WHERE cage_id=? AND status='已拨付' AND cage_generation=?""",
         (cage_id, gen),
     ).fetchone()["s"]
+    # 拨付册票号面：正式拨付行必须全部带票，源同 attestations.ticket_no
+    release_rows = conn.execute(
+        """SELECT release_ref, amount, attest_ticket_no FROM releases
+           WHERE cage_id=? AND status='已拨付' AND cage_generation=?
+           ORDER BY id""",
+        (cage_id, gen),
+    ).fetchall()
+    release_tickets = [
+        {
+            "release_ref": r["release_ref"],
+            "amount": float(r["amount"]),
+            "attest_ticket_no": r["attest_ticket_no"],
+        }
+        for r in release_rows
+    ]
+    tickets_complete = all(r["attest_ticket_no"] for r in release_rows)
     forfeited = conn.execute(
         """SELECT COALESCE(SUM(amount),0) s FROM forfeits
            WHERE cage_id=? AND status='已罚没' AND cage_generation=?""",
         (cage_id, gen),
     ).fetchone()["s"]
     accounted = round(float(available) + float(released) + float(forfeited), 6)
-    ok = abs(accounted - amount) < 1e-6
+    ok = abs(accounted - amount) < 1e-6 and tickets_complete
     # 账户侧：该当事人冻结额应覆盖所有仍冻结/核验中的笼可用
     party = cage["party_key"]
     acct = conn.execute(
@@ -48,6 +64,8 @@ def _reconcile_cage(conn, cage) -> dict:
         "available": available,
         "released": float(released),
         "forfeited": float(forfeited),
+        "release_tickets": release_tickets,
+        "tickets_complete": tickets_complete,
         "accounted": accounted,
         "balanced": ok,
         "gap": round(amount - accounted, 6),

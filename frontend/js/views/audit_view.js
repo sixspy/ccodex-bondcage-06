@@ -43,6 +43,22 @@ export const auditViewTemplate = `
           </tr>
         </tbody>
       </table>
+      <h3 style="margin-top:14px">出金拒写（缺票/废票，甲路径零写入）</h3>
+      <table>
+        <thead><tr><th>时间</th><th>人</th><th>动作</th><th>目标笼</th><th>载荷</th></tr></thead>
+        <tbody>
+          <tr v-for="r in rejections" :key="r.id">
+            <td>{{ r.created_at }}</td>
+            <td>{{ r.actor }}</td>
+            <td><span class="badge fail">{{ r.action }}</span></td>
+            <td>{{ r.target }}</td>
+            <td><code style="font-size:11px">{{ r.payload }}</code></td>
+          </tr>
+          <tr v-if="!rejections.length">
+            <td colspan="5" class="hint">暂无拒写记录</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   </div>
 </section>
